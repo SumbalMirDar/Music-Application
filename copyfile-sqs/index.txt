@@ -1,0 +1,57 @@
+const { S3Client, CopyObjectCommand } = require("@aws-sdk/client-s3");
+
+const s3Client = new S3Client({ region: "us-west-1" }); // Ensure this matches the region of the destination bucket
+
+exports.handler = async (event) => {
+  try {
+    console.log("Received event:", JSON.stringify(event, null, 2));
+
+    // Check that the event has records
+    if (!event.Records || event.Records.length === 0) {
+      console.log("No records found in the event.");
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ message: "Bad Request: No records found in the event." }),
+      };
+    }
+
+    // Extract the message from the SQS event
+    const sqsRecord = event.Records[0];
+    const snsMessage = JSON.parse(sqsRecord.body).Message;
+    const message = JSON.parse(snsMessage);
+
+    const { bucketName, fileKey, destinationBucket } = message;
+
+    // Validate the extracted parameters
+    if (!bucketName || !fileKey || !destinationBucket) {
+      console.log("Missing parameters in the message.");
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ message: "Bad Request: Missing parameters in the message." }),
+      };
+    }
+
+    // Define parameters for the copy operation
+    const copyParams = {
+      Bucket: destinationBucket,
+      CopySource: `${bucketName}/${fileKey}`,
+      Key: fileKey,
+    };
+
+    // Perform the copy operation
+    await s3Client.send(new CopyObjectCommand(copyParams));
+
+    console.log(`Successfully copied file from ${bucketName}/${fileKey} to ${destinationBucket}/${fileKey}`);
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ message: "File copied successfully" }),
+    };
+  } catch (error) {
+    console.error("Error copying file: ", error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ message: "Failed to copy file", error: error.message }),
+    };
+  }
+};
